@@ -1,14 +1,15 @@
 import argparse, sys
 lazy from pathlib import Path
-lazy from . import msa as btmsa
+lazy from . import buttle_rust as btrust
+lazy from . import comparisons as btcomp
 lazy from . import constants as btc
+lazy from . import multiple_alignment as btmsa
+lazy from . import pairwise as btpa
 lazy from . import renderers as btr
 lazy from . import sequences as bts
-lazy from . import comparisons as btcomp
-lazy from . import pairwise_align as bta
-lazy from . import models as btm
-lazy from . import pairwise_align as btpa
-lazy from . import buttle_rust as btrust
+lazy from . import validation as btv
+lazy from .models import alignments as btma
+lazy from .models import molecules as btmm
 
 
 def main():
@@ -185,35 +186,60 @@ def main():
         help = "Sequence 2 for alignment."
     )
     parser_pairwise_dna.add_argument(
-        "--save",
-        metavar = "FILE",
-        help = "Save a PNG image of the alignment with the provided filename."
-    )
-    parser_pairwise_dna.add_argument(
         "--diff",
         action="store_true",
         help = "This option will output dots for bases that are identical to the first sequence."
     )
     parser_pairwise_dna.add_argument(
-        "--s1",
-        metavar = "Seq 1 Start",
-        type=int,
-        default=1,
-        help = "The base number that sequence 1 starts at. Defaults to 1."
+        "--name1",
+        metavar = "NAME",
+        help = "The name of sequence 1. Defaults to '1'."
     )
     parser_pairwise_dna.add_argument(
-        "--s2",
-        metavar = "Seq 2 Start",
-        type=int,
-        default=1,
-        help = "The base number that sequence 2 starts at. Defaults to 1."
+        "--name2",
+        metavar = "NAME",
+        help = "The name of sequence 2. Defaults to '2'."
+    )
+    parser_pairwise_dna.add_argument(
+        "--save",
+        nargs="?",
+        const=True,
+        metavar = "FILE",
+        help = "Save alignment to FILE, or choose a filename interactively."
+    )
+    parser_pairwise_dna.add_argument(
+        "--wrap",
+        metavar = "N",
+        type = _positive_int,
+        default = 300,
+        help = "Specify how many residues of the alignment are rendered per line (image only). Defaults to 300."
+    )
+    parser_pairwise_dna.add_argument(
+        "--real-ruler",
+        nargs="?",
+        const = 1,
+        type = _positive_int,
+        default = None,
+        metavar = "START",
+        help = "This option will display the ruler (image only) based on the amino acid numbers of the reference sequence, starting at START (defaults to 1)."
+    )
+    parser_pairwise_dna.add_argument(
+        "--consensus",
+        action = "store_true",
+        help = "This option will add a consensus sequence to the bottom of the alignment."
+    )
+    parser_pairwise_dna.add_argument(
+        "--backend",
+        choices=("python", "rust"),
+        default="rust",
+        help = "Choose whether to use the rust implementation (compiled, default) or python (much slower for large numbers of sequences.)"
     )
     parser_pairwise_dna.set_defaults(func=cli_dna_align)
 
 
     parser_pairwise_protein = subparsers.add_parser(
-            "protein_align",
-            help = "Align two given protein sequences."
+        "protein_align",
+        help = "Align two given protein sequences."
         )
     parser_pairwise_protein.add_argument(
         "seq1",
@@ -226,7 +252,7 @@ def main():
     parser_pairwise_protein.add_argument(
         "--diff",
         action="store_true",
-        help = "This option will output dots for bases that are identical to the first sequence."
+        help = "This option will output dots for amino acids that are identical to the first sequence."
     )
     parser_pairwise_protein.add_argument(
         "--name1",
@@ -239,11 +265,18 @@ def main():
         help = "The name of sequence 2. Defaults to '2'."
     )
     parser_pairwise_protein.add_argument(
+        "--save",
+        nargs="?",
+        const=True,
+        metavar = "FILE",
+        help = "Save alignment to FILE, or choose a filename interactively."
+    )
+    parser_pairwise_protein.add_argument(
         "--wrap",
         metavar = "N",
-        type=_positive_int,
-        default=300,
-        help = "Specfiy how many residues of the alignment are rendered per line (image only). Defaults to 300."
+        type = _positive_int,
+        default = 300,
+        help = "Specify how many residues of the alignment are rendered per line (image only). Defaults to 300."
     )
     parser_pairwise_protein.add_argument(
         "--real-ruler",
@@ -252,14 +285,7 @@ def main():
         type = _positive_int,
         default = None,
         metavar = "START",
-        help = "This option will display the ruler based on the amino acid numbers of the reference sequence, starting at START (defaults to 1)."
-    )
-    parser_pairwise_protein.add_argument(
-        "--save",
-        nargs="?",
-        const=True,
-        metavar = "FILE",
-        help = "Save alignment to FILE, or choose a filename interactively."
+        help = "This option will display the ruler (image only) based on the amino acid numbers of the reference sequence, starting at START (defaults to 1)."
     )
     parser_pairwise_protein.add_argument(
         "--consensus",
@@ -307,7 +333,7 @@ def main():
         type = _positive_int,
         default = None,
         metavar = "START",
-        help = "This option will display the ruler based on the amino acid numbers of the reference sequence, starting at START (defaults to 1)."
+        help = "This option will display the ruler (image only) based on the amino acid numbers of the reference sequence, starting at START (defaults to 1)."
     )
     parser_msa.add_argument(
         "--save",
@@ -336,6 +362,23 @@ def main():
         default = -10,
         help = "Specify the profile merge level affine gap open penalty. Defaults to -10."
         )
+    parser_msa.add_argument(
+        "--stop-action",
+        choices=("error", "truncate", "exclude"),
+        default = "error",
+        help = "Determines behavior when translated protein sequences contain stop codons. Defaults to raising an error."
+    )
+    parser_msa.add_argument(
+        "--molecule-type",
+        choices=("auto", "protein", "dna"),
+        default = "auto",
+        help = "Specify whether the FASTA file should be parsed as DNA or Protein. Defaults to auto-detection."
+    )
+    parser_msa.add_argument(
+        "--tree",
+        action="store_true",
+        help="Print the hierarchical guide tree used to construct the alignment.",
+    )
     parser_msa.set_defaults(func=cli_msa)
 
 
@@ -369,22 +412,26 @@ def main():
 # CLI Function Dispatchers
 
 def cli_transcribe(args):
-    print(f"{btc.RED_TERM}{bts.transcribe(args.dna)}{btc.RESET}")
+    dna = btmm.DNA(name="", sequence=args.dna)
+    print(f"{btc.RED_TERM}{dna.transcribe()}{btc.RESET}")
 
 
 def cli_translate(args):
-    f1, f2, f3 = bts.translate(args.dna)
+    dna = btmm.DNA(name="", sequence=args.dna)
+    f1, f2, f3 = dna.translate()
     print(f"{btc.RED_TERM}Frame 1: {f1}")
     print(f"Frame 2: {f2}")
     print(f"Frame 3: {f3}{btc.RESET}")
 
 
 def cli_reverse_comp(args):
-    print(f"{btc.RED_TERM}{bts.reverse_comp(args.dna)}{btc.RESET}")
+    dna = btmm.DNA(name="", sequence=args.dna)
+    print(f"{btc.RED_TERM}{dna.reverse_comp()}{btc.RESET}")
 
 
 def cli_gc(args):
-    length, contents, at_content, gc_content = bts.gc(args.dna)
+    dna = btmm.DNA(name="", sequence=args.dna)
+    length, contents, at_content, gc_content = dna.gc()
     print(f"{btc.RED_TERM}Total bases:{btc.RESET} {length}")
     print(f"{btc.RED_TERM}A:{btc.RESET} {contents["A"]}")
     print(f"{btc.RED_TERM}C:{btc.RESET} {contents["C"]}")
@@ -395,29 +442,29 @@ def cli_gc(args):
 
 
 def cli_charge(args):
-    protein = btm.Protein(name="", sequence=args.protein)
+    protein = btmm.Protein(name="", sequence=args.protein)
     print(f"{btc.RED_TERM}Charge = {protein.charge()}{btc.RESET}")
 
 
 def cli_mw(args):
-    protein = btm.Protein(name="", sequence=args.protein)
+    protein = btmm.Protein(name="", sequence=args.protein)
     print(f"{btc.RED_TERM}Molecular Weight = {protein.mw():.1f}{btc.RESET}")
 
 
 def cli_ec(args):
-    protein = btm.Protein(name="", sequence=args.protein)
+    protein = btmm.Protein(name="", sequence=args.protein)
     print(f"{btc.RED_TERM}Extinction Coefficient = {protein.ec()}{btc.RESET}")
 
 
 def cli_props(args):
-    protein = btm.Protein(name="", sequence=args.protein)
+    protein = btmm.Protein(name="", sequence=args.protein)
     print(f"{btc.RED_TERM}Molecular Weight = {protein.mw():.1f}{btc.RESET}")
     print(f"{btc.RED_TERM}Charge = {protein.charge()}{btc.RESET}")
     print(f"{btc.RED_TERM}Extinction Coefficient = {protein.ec()}{btc.RESET}")
 
 
 def cli_glycosylation(args):
-    protein = btm.Protein(name="", sequence=args.protein)
+    protein = btmm.Protein(name="", sequence=args.protein)
     sites = protein.glycosylation()
     if len(sites) == 0:
         print("No N-linked glycosylation sites found.")
@@ -432,8 +479,8 @@ def cli_glycosylation(args):
 
 
 def cli_motifs(args):
-    protein1 = btm.Protein(name="", sequence=args.s1)
-    protein2 = btm.Protein(name="", sequence=args.s2)
+    protein1 = btmm.Protein(name="", sequence=args.s1)
+    protein2 = btmm.Protein(name="", sequence=args.s2)
     similars = btcomp.motifs(protein1, protein2)
     if not similars:
         print("No significant similarity found.")
@@ -451,7 +498,7 @@ def cli_length(args):
 
 
 def cli_find_pos(args):
-    hits = bts.find_pos(args.sequence, args.search_string)
+    hits = bts.find_position(args.sequence, args.search_string)
     if not hits:
         print("Not found")
     else:
@@ -461,47 +508,75 @@ def cli_find_pos(args):
 
 
 def cli_dna_align(args):
-    align1, align2 = bta.pairwise_dna(args.dna1, args.dna2)
-    btr.print_dna_pairwise_alignment([align1, align2], args.diff)
+    dna1 = btmm.DNA("", args.dna1, allow_n=True)
+    dna2 = btmm.DNA("", args.dna2, allow_n=True)
 
-    if args.save:
-        btr.save_dna_pairwise_alignment([align1, align2], filename=args.save, start1=args.s1, start2=args.s2, diff=args.diff)
-
-
-def cli_protein_align(args):
-    protein1 = btm.Protein("", args.seq1, allow_x=True)
-    protein2 = btm.Protein("", args.seq2, allow_x=True)
 
     if args.backend == "rust":
-        align1, align2 = btrust._align_protein(protein1.sequence, protein2.sequence)
+        btv.check_alignment_size(len(dna1.sequence), len(dna2.sequence), backend="rust")
+        align1, align2 = btrust._align(dna1.sequence, dna2.sequence, "dna")
         align1 = list(align1)
         align2 = list(align2)
+    elif args.backend == "python":
+        align1, align2 = btpa.pairwise_align(dna1, dna2)
     else:
-        align1, align2 = btpa.pairwise_protein(protein1, protein2)
+        raise ValueError(f"Unrecognized backend {args.backend}.")
 
-    profile = btm.Profile(
+    profile = btma.Profile(
         name = [args.name1 or "1", args.name2 or "2"],
-        alignment = [align1, align2]
+        alignment = [align1, align2],
+        molecule_type = "dna"
     )
 
     if args.consensus:
-        profile = btmsa.add_consensus(profile)
+        profile.add_consensus()
         consensus = True
     else:
         consensus = False
 
-    _output_protein_alignment(profile, args, consensus)
+    _output_alignment(profile, args, consensus)
+
+
+def cli_protein_align(args):
+    protein1 = btmm.Protein("", args.seq1, allow_x=True)
+    protein2 = btmm.Protein("", args.seq2, allow_x=True)
+
+    if args.backend == "rust":
+        btv.check_alignment_size(len(protein1.sequence), len(protein2.sequence), backend="rust")
+        align1, align2 = btrust._align(protein1.sequence, protein2.sequence, "protein")
+        align1 = list(align1)
+        align2 = list(align2)
+    elif args.backend == "python":
+        align1, align2 = btpa.pairwise_align(protein1, protein2)
+    else:
+        raise ValueError(f"Unrecognized backend {args.backend}.")
+
+    profile = btma.Profile(
+        name = [args.name1 or "1", args.name2 or "2"],
+        alignment = [align1, align2],
+        molecule_type = "protein"
+    )
+
+    if args.consensus:
+        profile.add_consensus()
+        consensus = True
+    else:
+        consensus = False
+
+    _output_alignment(profile, args, consensus)
 
 
 def cli_msa(args):
-    profile = btmsa.msa(args.file, args.backend, int(args.gap_open), int(args.gap_extend))
+    profile = btmsa.msa(args.file, int(args.gap_open), int(args.gap_extend), args.backend, args.molecule_type, args.stop_action, args.tree)
+    
     if args.consensus:
-        profile = btmsa.add_consensus(profile)
+        profile.add_consensus()
         consensus = True
     else:
         consensus = False
-    _output_protein_alignment(profile, args, consensus)
 
+    _output_alignment(profile, args, consensus)
+    
 
 def cli_identity(args):
     identities = btcomp.identity(args.file)
@@ -509,7 +584,7 @@ def cli_identity(args):
         print(key, f"{identities[key]:.3f}")
 
 
-def _output_protein_alignment(profile:btm.Profile, args, consensus:bool):
+def _output_alignment(profile:btma.Profile, args, consensus:bool):
     if args.save:
         filename = args.save
 
@@ -531,13 +606,13 @@ def _output_protein_alignment(profile:btm.Profile, args, consensus:bool):
             raise ValueError(f"Unsupported image format {suffix}")
 
         # Render the alignment properly, then save it as an image
-        image = btr.render_protein_alignment_image(profile, scale, wrap=args.wrap, start=args.real_ruler, consensus=consensus, diff=args.diff)
-        btr.save_protein_alignment_image(image, suffix, filename=filename)
+        image = btr.render_alignment_image(profile, scale, wrap=args.wrap, start=args.real_ruler, consensus=consensus, diff=args.diff)
+        btr.save_alignment_image(image, suffix, filename=filename)
 
     else:
 
         # Terminal output
-        btr.print_protein_alignment(profile, consensus, args.diff)
+        btr.print_alignment(profile, consensus=consensus, diff=args.diff)
 
 
 def _positive_int(value:str):

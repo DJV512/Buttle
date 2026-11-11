@@ -25,6 +25,7 @@ TERMINAL_COLORS_DNA = {
         "match": GREEN_TERM,
         "gap": BROWN_TERM,
         "mismatch": RED_TERM,
+        "unknown": BLACK_TERM,
     }
 
 # Protein Alignment Terminal Colors
@@ -52,6 +53,7 @@ DNA_IMAGE_COLORS = {
         "match": GREEN,
         "gap": BROWN,
         "mismatch": RED,
+        "unknown": BLACK,
     }
 
 # Protein Alignment Image Colors
@@ -224,23 +226,41 @@ for aa in AMINO_ACIDS:
     BUTTLE_COMPARE[aa]["X"] = -25
 
 
-
-# Affine gap scoring for protein alignment
+# Affine gap scoring for protein pairwise alignment
 PROTEIN_GAP_OPEN = -10
 PROTEIN_GAP_EXTEND = -1
-PROFILE_GAP_OPEN = -10
-PROFILE_GAP_EXTEND = -3
 
-# MSA gap scoring
+# Affine gap scoring for protein profile alignment
+PROTEIN_PROFILE_GAP_OPEN = -10
+PROTEIN_PROFILE_GAP_EXTEND = -3
+
+# MSA profile residue/gap scoring
 PROTEIN_GAP = -8
+
+# Affine gap scoring for DNA pairwise alignment
+DNA_GAP_OPEN = -10
+DNA_GAP_EXTEND = -1
+
+# Affine gap scoring for protein profile alignment
+DNA_PROFILE_GAP_OPEN = -10
+DNA_PROFILE_GAP_EXTEND = -3
+
+# MSA profile residue/gap scoring
+DNA_GAP = -8
 
 # DNA Pariwise Matching Constants
 DNA_MATCH = 8
 DNA_MISMATCH = -5
-DNA_GAP = -3
 
+# Memory safety checks for alignments
+MAX_ALIGNMENT_CELLS_PYTHON = 1000000
+MAX_ALIGNMENT_CELLS_RUST = 10000000
 
+# FASTA Size Limit for Parsing
+MAX_FASTA_MEGABYTES = 10
+MAX_FASTA_BYTES = MAX_FASTA_MEGABYTES * 1024 * 1024
 
+# Custom Help Text
 MY_HELP=f'''{BLUE_HELP}usage: {MAGENTA_HELP}buttle <command> [options]{RESET}
 
 Command line utilities for DNA and protein sequence analysis.

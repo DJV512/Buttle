@@ -1,21 +1,28 @@
-def _align_protein(
+def _align(
         seq1: str,
-        seq2: str
+        seq2: str,
+        molecule_type: str
     ) -> tuple[str, str]:
     """
-    Perform pairwise protein sequence alignment using the Gotoh algorithm.
+    Perform a global pairwise alignment using affine gap penalties.
 
-    Uses BLOSUM62 substitution scores and affine gap penalties.
-
-    Implemented in Rust. For use only with validated Protein objects.
+    Both inputs must be of the same type (Protein sequence or DNA sequence).
+    Protein alignments use BLOSUM62 substitution scores, while DNA
+    alignments use fixed match and mismatch scores. Gap penalties
+    are determined by the molecule type.
 
     Args:
-        seq1: First protein sequence.
-        seq2: Second protein sequence.
+        seq1: First Protein or DNA sequence to align.
+        seq2: Second Protein or DNA sequence to align.
 
     Returns:
-        A tuple containing the two aligned protein sequences,
-        including gap characters.
+        A tuple containing two lists of aligned residues or bases,
+        including '-' characters representing gaps.
+
+    Warning:
+        This function does not validate that the input sequences match
+        the specified molecule type. Callers must perform this validation
+        before invoking the function.
     """
     ...
 
@@ -24,6 +31,7 @@ def _merge(
         left_sequences: list[str],
         right_names:list[str],
         right_sequences: list[str],
+        molecule_type: str,
         gap_open:float,
         gap_extend:float,
     ) -> tuple[list[str], list[str]]:

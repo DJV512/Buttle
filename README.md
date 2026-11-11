@@ -1,4 +1,4 @@
-![Logo](https://raw.githubusercontent.com/DJV512/Buttle/v0.3.0/docs/images/buttle_logo_with_tag.png)
+![Logo](https://raw.githubusercontent.com/DJV512/Buttle/main/docs/images/buttle_logo_with_tag.png)
 Buttle was developed as a lightweight collection of bioinformatics utilities for common sequence-analysis tasks, with an emphasis on convenient command-line use. It provides tools for working with DNA and protein sequences, including sequence manipulation, peptide properties, motif searching, pairwise alignment, and multiple sequence alignment.
 
 Buttle is currently under active development.
@@ -13,11 +13,14 @@ Buttle is currently under active development.
 
 ### DNA sequences
 
-- Transcribe DNA to RNA
-- Translate DNA in three reading frames
+- Transcribe to RNA
+- Translate in three reading frames
 - Generate reverse complements
 - Calculate GC content
-- Pairwise DNA sequence alignment
+- Pairwise sequence alignment from two raw sequence arguments
+    - Rust backend by default, with a Python backend available
+- Multiple sequence alignment (MSA) from FASTA files or FASTA-formatted strings
+    - Rust backend by default, with a Python backend available
 
 ### Protein sequence tools
 - Calculate protein net charge
@@ -32,14 +35,16 @@ Buttle is currently under active development.
 
 
 ### Rendering
-- Display alignments in the terminal (when no `--save` argument provided)
+- Print alignments in the terminal (when no `--save` argument provided)
 - Generate publication-quality PNG and TIFF alignment images
-    - Save Pairwise DNA and protein alignments
-    - Save multiple protein sequence alignments
+    - Pairwise DNA and Protein alignments
+    - Multiple DNA and Protein sequence alignments
     - Alignment row length can be tuned with `--wrap`
     - Argument `--real-ruler` displays residue number based on the first sequence, skipping gaps
-- Argument `--diff` displays alignment differences relative to a reference sequence
-- MSA optionally adds a consensus sequence with `--consensus`
+        - Optionally add a number at which the ruler numbering will start (defaults to 1)
+- Argument `--diff` displays alignment differences relative to a reference sequence (first sequence in FASTA file)
+- Argument `--consensus` optionally adds a consensus sequence to the bottom of an MSA
+- Argument `--tree` displays an average-linkage clustering of pairwise sequence distances, not a phylogenetic reconstruction
 
 
 ## Installation/Requirements
@@ -82,11 +87,20 @@ Or install it into your active Python environment:
 pip install buttle
 ```
 
-Buttle's Python modules can then be imported and used directly.
+Buttle's Python modules can also be imported and used directly.
 ```python
 from buttle import sequences
 
-# Use functions from the sequences module
+# Access functions from the sequences module
+output = sequences.find_position(sequence, search_string)
+```
+
+For convenience, commonly used classes and functions are also exposed at the package's top level:
+```python
+from buttle import find_position
+
+# Call functions directly without referencing their modules
+output = find_position(sequence, search_string)
 ```
 
 ### Building from source
@@ -206,28 +220,42 @@ GC Content: 46.30
 $ buttle props adlsykfehyaskgascwedasdkflsdad
 Charge = -4
 Molecular Weight = 3357.6
-Extinction Coefficient = 8370 
+Extinction Coefficient = 8370
 ```
 
 #### Pairwise Alignment of DNA or Protein
 ```console
-$ buttle dna_align atctcatgcgtcgtacgtacgt tgcatgcgtacgtagtcgatgtc
+$ buttle dna_align atctcatgcgtcgtacgtacgt tgcatgcgtacgtagtcgatgtc --diff
 ```
-![Pairwise DNA Alignment](https://raw.githubusercontent.com/DJV512/Buttle/v0.3.0/docs/images/dna_pairwise_align.png)
+![Pairwise DNA Alignment](https://raw.githubusercontent.com/DJV512/Buttle/main/docs/images/dna_pairwise_align.png)
 
-#### Multiple Protein Sequence Alignment
-Buttle implements a custom progressive multiple protein sequence alignment algorithm using an average-linkage guide tree, BLOSUM62-based scoring, and tunable affine gap open and extension penalties. Optional "X" residues can be used as alignment anchors. Computationally intensive operations are accelerated using a Rust extension.
+#### Multiple Sequence Alignment
+Buttle implements a custom progressive multiple sequence alignment algorithm using an average-linkage guide tree with tunable affine gap open and extension penalties. For Proteins, Buttle uses BLOSUM62-based scoring. Optional "X" residues can be used as alignment anchors. For DNA, Buttle uses fixed base match and mismatch scoring. Computationally intensive operations are accelerated using a Rust extension.
 
 
 ```console
-$ buttle msa docs/examples/synthetic_example_proteins.fasta --save docs/images/synthetic_alignment.png --diff --wrap 100
+$ buttle msa docs/examples/synthetic_example_proteins.fasta --save docs/images/synthetic_alignment_protein.png --diff --wrap 100
 ```
-![Multiple Protein Sequence Alignment](https://raw.githubusercontent.com/DJV512/Buttle/v0.3.0/docs/images/synthetic_alignment.png)
+![Multiple Protein Sequence Alignment](https://raw.githubusercontent.com/DJV512/Buttle/main/docs/images/synthetic_alignment_protein.png)
 
-Conservative substitutions are shown in purple, non-conservative substitutions in red, and gaps as black dashes. When `--diff` is enabled, identities to the reference sequence are shown as dots.
+Conservative substitutions are shown in purple, non-conservative substitutions in red, and gaps as black dashes. When `--diff` is enabled, identities to the reference sequence are shown as dots. For DNA, conservative substitutions are disabled.
 
-The sequences used in this example are available in
-[synthetic_example_proteins.fasta](docs/examples/synthetic_example_proteins.fasta).
+The Protein sequences used in this example are available in
+[synthetic_example_proteins.fasta](docs/examples/synthetic_example_proteins.fasta). A similar set of synthetic DNA sequences is available in [synthetic_example_dna.fasta](docs/examples/synthetic_example_dna.fasta).
+
+If the `--tree` argument is supplied, the average-linkage guide tree that was used to construct the multiple sequence alignment is printed to the terminal in a readable, hierarchical format. `*` represents internal `Cluster` nodes.
+
+```text
+root
+├── *
+│   ├── *
+│   │   ├── *
+│   │   │   ├── Synthetic_Alpha
+│   │   │   └── Synthetic_Beta
+│   │   └── Synthetic_Delta
+│   └── Synthetic_Gamma
+└── Synthetic_Epsilon
+```
 
 #### Rust vs Python
 The computationally intensive sequence alignment algorithms in Buttle were originally implemented in Python and subsequently ported to Rust to improve performance.
@@ -244,11 +272,7 @@ Omitting `--backend` uses the Rust implementation.
 
 ## Development status
 
-Buttle is currently in development. Interfaces and command-line options may change before version 1.0. Known limitations include:
-
-- Multiple sequence alignment currently supports proteins only.
-- DNA alignment image output currently limited to PNG, and does not support some arguments.
-- Guide tree visualization is still experimental.
+Buttle is currently in development. Interfaces and command-line options may change before version 1.0. If you find any issues, please report them [here](https://github.com/DJV512/Buttle/issues).
 
 ## License
 

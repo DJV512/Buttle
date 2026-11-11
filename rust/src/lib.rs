@@ -2,23 +2,23 @@ mod constants;
 mod pairwise;
 mod merge;
 
-pub use pairwise::pairwise_protein;
+pub use pairwise::pairwise_align;
 pub use merge::merge;
 pub use constants::Profile;
 
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
-/// Globally align two protein sequences using affine gap penalties.
+/// Globally align two sequences using affine gap penalties.
 ///
-/// Inputs must be normalized sequences from validated Protein objects.
+/// Inputs must be normalized sequences from validated Protein or DNA objects.
 /// This internal function does not perform input validation.
 ///
 /// Returns the two aligned sequences, with '-' characters marking gaps.
 #[cfg(feature = "python")]
 #[pyfunction]
-fn _align_protein(seq1: &str, seq2: &str) -> (String, String) {
-    pairwise_protein(seq1, seq2)
+fn _align(seq1: &str, seq2: &str, molecule_type: &str) -> (String, String) {
+    pairwise_align(seq1, seq2, molecule_type)
 }
 
 /// Globally align two profiles, made up of already aligned sequences, using affine gap penalties.
@@ -34,6 +34,7 @@ fn _merge(
     left_sequences: Vec<String>,
     right_names: Vec<String>,
     right_sequences: Vec<String>,
+    molecule_type: &str,
     gap_open: f64,
     gap_extend: f64,
 ) -> (Vec<String>, Vec<String>) {
@@ -53,7 +54,7 @@ fn _merge(
             .collect(),
     };
 
-    let result = merge(&left, &right, gap_open, gap_extend);
+    let result = merge(&left, &right, molecule_type, gap_open, gap_extend);
 
     (
         result.names,
@@ -67,7 +68,7 @@ fn _merge(
 #[cfg(feature = "python")]
 #[pymodule]
 fn buttle_rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(_align_protein, m)?)?;
+    m.add_function(wrap_pyfunction!(_align, m)?)?;
     m.add_function(wrap_pyfunction!(_merge, m)?)?;
     Ok(())
 }

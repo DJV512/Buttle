@@ -1,10 +1,9 @@
 lazy from collections import defaultdict
 lazy from itertools import combinations
-lazy from pathlib import Path
 lazy from . import constants as btc
-lazy from . import models as btm
-lazy from . import pairwise_align as btpa
+lazy from .models import molecules as btm
 lazy from . import parsers as btp
+lazy from . import validation as btv
 lazy from . import buttle_rust as btrust
 
 
@@ -62,18 +61,20 @@ def identity(
         file:str
     ) -> dict[tuple[str,str], float]:
 
-    if Path(file).exists():
-        sequences = btp.parse_fasta_file(file)
-    else:
-        sequences = btp.parse_fasta_string(file)
+    sequences = btp.parse_fasta(file)
 
+    if len(sequences) < 2:
+            raise ValueError("Identity requires at least two sequences.")
+    
+    molecule_type = type(sequences[0]).__name__.lower()
     identities = {}
 
-    for protein1, protein2 in combinations(sequences, 2):
-        align1, align2 = btrust._align_protein(protein1.sequence, protein2.sequence)
+    for seq1, seq2 in combinations(sequences, 2):
+        btv.check_alignment_size(len(seq1.sequence), len(seq2.sequence), backend="rust")
+        align1, align2 = btrust._align(seq1.sequence, seq2.sequence, molecule_type)
         length = len(align1)
-        identical = sum(1 for aa1, aa2 in zip(align1, align2, strict=True) if aa1==aa2)
-        percent_identity = identical/length
-        identities[(protein1.name, protein2.name)] = percent_identity
+        identical = sum(1 for aa1, aa2 in zip(align1, align2, strict=True) if aa1==aa2 and (molecule_type != "dna" or aa1 != "N"))
+        percent_identity = 100*(identical/length)
+        identities[(seq1.name, seq2.name)] = percent_identity
 
     return identities

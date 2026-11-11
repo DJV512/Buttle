@@ -1,7 +1,16 @@
 use crate::constants::{BLOSUMX,aa_index,Direction,Profile};
 
 
-pub fn merge(left: &Profile, right: &Profile, gap_open: f64, gap_extend: f64) -> Profile {
+pub fn merge(left: &Profile, right: &Profile, molecule_type: &str, gap_open: f64, gap_extend: f64) -> Profile {
+
+    let msa_score: fn(&[char], &[char]) -> f64 = if molecule_type == "protein" {
+        _msa_sigma_protein
+    } else if molecule_type == "dna" {
+        _msa_sigma_dna
+    } else {
+        panic!("Invalid molecule type.");
+    };
+
 
     const NEG_INF:f64 = f64::NEG_INFINITY;  
 
@@ -78,13 +87,13 @@ pub fn merge(left: &Profile, right: &Profile, gap_open: f64, gap_extend: f64) ->
             .collect();
 
 
-            // Current pair is a residue column vs residue column
-            let column_v_column_blosum_score = _msa_sigma(&left_column, &right_column);
+            // Current pair is a residue or base column vs residue or base column
+            let column_v_column_score = msa_score(&left_column, &right_column);
 
             let (best_score, direction) = [
-                (score_vert[(i-1) * cols + (j-1)] + column_v_column_blosum_score, Direction::Vert),
-                (score_hori[(i-1) * cols + (j-1)] + column_v_column_blosum_score, Direction::Hori),
-                (score_diag[(i-1) * cols + (j-1)] + column_v_column_blosum_score, Direction::Diag),
+                (score_vert[(i-1) * cols + (j-1)] + column_v_column_score, Direction::Vert),
+                (score_hori[(i-1) * cols + (j-1)] + column_v_column_score, Direction::Hori),
+                (score_diag[(i-1) * cols + (j-1)] + column_v_column_score, Direction::Diag),
             ].into_iter().max_by(|a, b| a.0.total_cmp(&b.0)).unwrap();
             score_diag[i * cols + j] = best_score;
             trace_diag[i * cols + j] = direction;
@@ -119,7 +128,7 @@ pub fn merge(left: &Profile, right: &Profile, gap_open: f64, gap_extend: f64) ->
 }
 
 
-fn _msa_sigma(
+fn _msa_sigma_protein(
     left_residues: &[char],
     right_residues: &[char],
 ) -> f64 {
@@ -146,6 +155,27 @@ fn _msa_sigma(
 }
 
 
+fn _msa_sigma_dna(
+    left_residues: &[char],
+    right_residues: &[char],
+) -> f64 {
+    let comparisons = left_residues.len() * right_residues.len();
+    let mut score = 0;
+    for &left_residue in left_residues {
+        for &right_residue in right_residues {
+            if left_residue == '-' && right_residue == '-' {
+                continue;
+            } else if left_residue == '-' || right_residue == '-' {
+                score -= 8;
+            } else if left_residue == right_residue && left_residue != 'N' {
+                score += 8
+            } else {
+                score -= 5
+            }
+        }
+    }
+    score as f64 / comparisons as f64
+}
 
 fn msa_traceback(
     _left:&Profile,

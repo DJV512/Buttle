@@ -1,37 +1,40 @@
 from itertools import combinations
-from collections import Counter
-from pathlib import Path
 from operator import itemgetter
 from math import inf
-from copy import copy
-from . import models as btm
+from .models import molecules as btmm
+from .models import alignments as btma
 from . import constants as btc
 from . import parsers as btp
-from . import pairwise_align as btpa
+from . import pairwise as btpa
+from . import validation as btv
 from . import buttle_rust as btrust
 
 
 def _build_pairwise_alignments(
-        sequences: list[btm.Protein],
-        backend: str,
-    ) -> list[btm.AlignedProteinPair]:
+        sequences: list[btmm.Protein] | list[btmm.DNA],
+        backend:str,
+        molecule_type:str,
+    ) -> list[btma.AlignedPair]:
     '''
-    Private function for performing pairwise alignments of all pairs of Proteins in the sequences list.
+    Private function for performing pairwise alignments of all pairs of Protein or DNA molecules in the sequences list.
     '''
     pairwise_alignments = []
-    for protein1, protein2 in combinations(sequences, 2):
+    for seq1, seq2 in combinations(sequences, 2):
 
         if backend == "rust":
-            align1, align2 = btrust._align_protein(protein1.sequence, protein2.sequence)
+            btv.check_alignment_size(len(seq1.sequence), len(seq2.sequence), backend="rust")
+            align1, align2 = btrust._align(seq1.sequence, seq2.sequence, molecule_type)
             align1 = list(align1)
             align2 = list(align2)
+        elif backend == "python":
+            align1, align2 = btpa.pairwise_align(seq1, seq2)
         else:
-            align1, align2 = btpa.pairwise_protein(protein1, protein2)
+            raise ValueError(f"Unrecognized backend {backend}.")
 
-        distance = _distance_score(align1, align2)
-        new_alignment = btm.AlignedProteinPair(
-            protein1 = protein1,
-            protein2 = protein2,
+        distance = _distance_score(align1, align2, molecule_type)
+        new_alignment = btma.AlignedPair(
+            sequence1 = seq1,
+            sequence2 = seq2,
             align1 = align1,
             align2 = align2,
             distance = distance
@@ -42,7 +45,8 @@ def _build_pairwise_alignments(
 
 def _distance_score(
         seq1:list[str], 
-        seq2:list[str]
+        seq2:list[str],
+        molecule_type:str
     ) -> float:
     '''
     Private function for determining distance between two protein sequences.
@@ -51,7 +55,7 @@ def _distance_score(
     score = 0
     for residue1, residue2 in zip(seq1, seq2):
         if residue1 != "-" and residue2 != "-":
-            if residue1 == residue2:
+            if residue1 == residue2 and (molecule_type != "dna" or residue1 != "N"):
                 score += 1
     similarity = score/length
     distance = 1 - similarity
@@ -59,33 +63,33 @@ def _distance_score(
 
 
 def _build_original_distance_matrix(
-        sequences:list[btm.Protein], 
-        pairwise_alignments:list[btm.AlignedProteinPair]
+        sequences:list[btmm.Protein] | list[btmm.DNA], 
+        pairwise_alignments:list[btma.AlignedPair]
     ) -> dict[str,dict[str, float]]:
     '''
     Private function for constructing the first distance matrix.
     '''
-    distance_matrix = {protein1.name:{protein2.name:0.0 for protein2 in sequences} for protein1 in sequences}
+    distance_matrix = {sequence1.name:{sequence2.name:0.0 for sequence2 in sequences} for sequence1 in sequences}
     for alignment in pairwise_alignments:
-        distance_matrix[alignment.protein1.name][alignment.protein2.name] = alignment.distance
-        distance_matrix[alignment.protein2.name][alignment.protein1.name] = alignment.distance
+        distance_matrix[alignment.sequence1.name][alignment.sequence2.name] = alignment.distance
+        distance_matrix[alignment.sequence2.name][alignment.sequence1.name] = alignment.distance
     return distance_matrix
 
 
 def _get_members(
-        item: btm.Protein | btm.Cluster
-    ) -> list[btm.Protein]:
+        item: btmm.Protein | btmm.DNA | btma.Cluster
+    ) -> list[btmm.Protein] | list[btmm.DNA]:
     '''
-    Private function for returning a list of all members associated with item. The item could be a Protein object or a Cluster object.
+    Private function for returning a list of all members associated with item. The item could be a Protein or DNA object, or a Cluster object.
     '''
-    if isinstance(item, btm.Protein):
+    if isinstance(item, (btmm.Protein, btmm.DNA)):
         return [item]
     return item.members
 
 
 def _get_distance(
-        item1:btm.Protein | btm.Cluster,
-        item2:btm.Protein | btm.Cluster,
+        item1:btmm.Protein | btmm.DNA | btma.Cluster,
+        item2:btmm.Protein | btmm.DNA | btma.Cluster,
         original_distance_matrix:dict[str, dict[str, float]]
     ) -> float:
     '''
@@ -101,16 +105,16 @@ def _get_distance(
 
 
 def _get_id(
-        item: btm.Protein | btm.Cluster
+        item: btmm.Protein | btmm.DNA | btma.Cluster
     ) -> str:
 
-    if isinstance(item, btm.Protein):
+    if isinstance(item, (btmm.Protein, btmm.DNA)):
         return item.name
     return item.id
 
 
 def _build_cluster_distance_matrix(
-        items:list[btm.Protein | btm.Cluster],
+        items:list[btmm.Protein | btma.Cluster],
         original_distance_matrix:dict[str, dict[str, float]]
     ) -> dict[str, dict[str, float]]:
     '''
@@ -142,9 +146,9 @@ def _find_closest_pair(
 
 
 def _build_guide_tree(
-        sequences:list[btm.Protein],
+        sequences:list[btmm.Protein] | list[btmm.DNA],
         original_distance_matrix:dict[str, dict[str, float]]
-    ) -> btm.Cluster:
+    ) -> btma.Cluster:
     '''
     Private function for building the guide tree before assemling the alignment.
     '''
@@ -171,7 +175,7 @@ def _build_guide_tree(
 
         # Merge them into a Cluster
         members = _get_members(left) + _get_members(right)
-        tree = btm.Cluster(
+        tree = btma.Cluster(
             id=f"__cluster_{cluster_number}",
             name=f"{left.name}-{right.name}",
             left=left,
@@ -188,12 +192,12 @@ def _build_guide_tree(
     return tree
 
 
-def _msa_sigma(
+def _msa_sigma_protein(
         left_residues: list[str],
         right_residues: list[str]
     ) -> float:
     '''
-    Private function for determining the average pairwise score between two profile columns.
+    Private function for determining the average pairwise score between two protein profile columns.
     '''
     comparisons = len(left_residues) * len(right_residues)
     score = 0
@@ -208,22 +212,46 @@ def _msa_sigma(
     return score/comparisons
 
 
+def _msa_sigma_dna(
+        left_residues: list[str],
+        right_residues: list[str]
+    ) -> float:
+    '''
+    Private function for determining the average pairwise score between two DNA profile columns.
+    '''
+    comparisons = len(left_residues) * len(right_residues)
+    score = 0
+    for left_residue in left_residues:
+        for right_residue in right_residues:
+            if left_residue == "-" and right_residue == "-":
+                continue
+            elif left_residue == "-" or right_residue == "-":
+                score += btc.DNA_GAP
+            else:
+                if left_residue == right_residue and left_residue != "N":
+                    score += btc.DNA_MATCH
+                else:
+                    score += btc.DNA_MISMATCH
+    return score/comparisons
+
+
 def _global_msa_backtrack(
-        left:btm.Profile, 
-        right:btm.Profile, 
+        left:btma.Profile, 
+        right:btma.Profile, 
         score_diag:dict[tuple[int, int], tuple[float, str]],
         score_vert:dict[tuple[int, int], tuple[float, str]],
         score_hori:dict[tuple[int, int], tuple[float, str]],
         i:int, 
         j:int,
-    ) -> btm.Profile:
+        molecule_type:str
+    ) -> btma.Profile:
     '''
     Private method for taking affine profile-profile score tables and backtracking to assemble the optimal alignment.
     '''
 
     #Initialize the final_profile
     total_sequences = len(left.alignment)+len(right.alignment)
-    final_profile = btm.Profile(name=left.name + right.name, alignment=[[] for _ in range(total_sequences)])
+    final_profile = btma.Profile(name=left.name + right.name, alignment=[[] for _ in range(total_sequences)], molecule_type=molecule_type)
 
     _, predecessor = max(
         (score_diag[i,j][0], "diag"),
@@ -267,17 +295,26 @@ def _global_msa_backtrack(
 
 
 def _merge(
-        left: btm.Profile,
-        right: btm.Profile,
+        left: btma.Profile,
+        right: btma.Profile,
         gap_open: int,
         gap_extend: int,
-    ) -> btm.Profile:
+        molecule_type:str,
+    ) -> btma.Profile:
     '''
-    Private function for merging Proteins and Profiles during multiple alignment.
+    Merge two alignment profiles using affine gap penalties and molecule-specific column scoring.
     '''
 
-    left = btm.Profile(name=left.name, alignment=[[" ", *row] for row in left.alignment])
-    right = btm.Profile(name=right.name, alignment=[[" ", *row] for row in right.alignment])
+    if molecule_type == "protein":
+        msa_score = _msa_sigma_protein
+    elif molecule_type == "dna":
+        msa_score = _msa_sigma_dna
+    else:
+        raise ValueError(f"Molecule type must be protein or dna, not {molecule_type}")
+    
+
+    left = btma.Profile(name=left.name, alignment=[[" ", *row] for row in left.alignment], molecule_type=molecule_type)
+    right = btma.Profile(name=right.name, alignment=[[" ", *row] for row in right.alignment], molecule_type=molecule_type)
     left_profiles = left.alignment
     right_profiles = right.alignment
     left_length = len(left_profiles[0])
@@ -314,11 +351,11 @@ def _merge(
             right_column = [profile[j] for profile in right_profiles]
 
             # Current pair is a residue column vs residue column
-            column_v_columm_blosum_score = _msa_sigma(left_column, right_column)
+            score = msa_score(left_column, right_column)
             score_diag[i, j] = max(
-                (score_diag[i - 1, j - 1][0] + column_v_columm_blosum_score, "diag"),
-                (score_hori[i - 1, j - 1][0] + column_v_columm_blosum_score, "hori"),
-                (score_vert[i - 1, j - 1][0] + column_v_columm_blosum_score, "vert"),
+                (score_diag[i - 1, j - 1][0] + score, "diag"),
+                (score_hori[i - 1, j - 1][0] + score, "hori"),
+                (score_vert[i - 1, j - 1][0] + score, "vert"),
                 key = itemgetter(0)
             )
 
@@ -336,44 +373,50 @@ def _merge(
                 key = itemgetter(0)
             )
    
-    return _global_msa_backtrack(left, right, score_diag, score_vert, score_hori, left_length-1, right_length-1)
+    return _global_msa_backtrack(left, right, score_diag, score_vert, score_hori, left_length-1, right_length-1, molecule_type)
 
 
 def _walk_tree(
-        node:btm.Cluster | btm.Protein,
+        node:btma.Cluster | btmm.Protein | btmm.DNA,
         backend: str,
         gap_open: int,
         gap_extend: int,
-    ) -> btm.Profile:
+        molecule_type: str,
+    ) -> btma.Profile:
     '''
     Recursive function to walk through the Cluster tree.
     '''
-    if isinstance(node, btm.Protein):
-        return btm.Profile(name=[node.name], alignment=[list(node.sequence)])
+    if isinstance(node, (btmm.Protein, btmm.DNA)):
+        return btma.Profile(name=[node.name], alignment=[list(node.sequence)], molecule_type=molecule_type)
 
-    left_profile = _walk_tree(node.left, backend, gap_open, gap_extend)
-    right_profile = _walk_tree(node.right, backend, gap_open, gap_extend)
+    left_profile = _walk_tree(node.left, backend, gap_open, gap_extend, molecule_type)
+    right_profile = _walk_tree(node.right, backend, gap_open, gap_extend, molecule_type)
 
     if backend == "rust":
+        btv.check_alignment_size(len(left_profile.alignment[0]), len(right_profile.alignment[0]), backend="rust")
         names, sequences = btrust._merge(
             left_profile.name,
             ["".join(seq) for seq in left_profile.alignment],
             right_profile.name,
             ["".join(seq) for seq in right_profile.alignment],
+            molecule_type,
             gap_open,
             gap_extend,
         )
+        return btma.Profile(name=names, alignment=[list(seq) for seq in sequences], molecule_type=molecule_type)
+    
+    elif backend == "python":
+        btv.check_alignment_size(len(left_profile.alignment[0]), len(right_profile.alignment[0]), backend="python")
+        return _merge(left_profile, right_profile, gap_open, gap_extend, molecule_type)
 
-        return btm.Profile(name=names, alignment=[list(seq) for seq in sequences],
-)
     else:
-        return _merge(left_profile, right_profile, gap_open, gap_extend)
+        raise ValueError(f"Unrecognized backend {backend}.")
 
 
 def _move_reference_sequence_to_top(
-        profile:btm.Cluster,
-        reference_sequence:btm.Protein
-    ) -> btm.Cluster:
+        profile:btma.Cluster,
+        reference_sequence:btmm.Protein | btmm.DNA
+    ) -> btma.Cluster:
     '''
     Moves the sequence that was first in the user input to the top of the alignment.
 
@@ -383,73 +426,67 @@ def _move_reference_sequence_to_top(
     if profile.left == reference_sequence:
         return profile
 
-    if isinstance(profile.left, btm.Protein) or reference_sequence not in profile.left.members:
+    if isinstance(profile.left, (btmm.Protein, btmm.DNA)) or reference_sequence not in profile.left.members:
         profile.swap_nodes()
         _move_reference_sequence_to_top(profile.left, reference_sequence)
 
-    elif isinstance(profile.left, btm.Cluster):
+    elif isinstance(profile.left, btma.Cluster):
         _move_reference_sequence_to_top(profile.left, reference_sequence)
 
     return profile
 
 
 def msa(
-        file:str,
-        backend:str,
-        gap_open:int,
-        gap_extend:int,
-    ) -> btm.Profile:
+        source:str,
+        gap_open:int = -10,
+        gap_extend:int = -3,
+        backend:str = "rust",
+        molecule_type:str = "auto",
+        stop_action:str = "error",
+        print_tree:bool = False,
+    ) -> btma.Profile:
     r'''
-    Function that takes in sequences in FASTA format, and returns a multiple sequence alignemnt.
+    Function that takes in sequences in FASTA format, and returns a multiple sequence alignment.
 
     Input to MSA must be a string that represents a FASTA file location, or a string formatted like a FASTA file.
 
-    Command-line usage with a FASTA-formatted string:
+    Python usage:
+    ```python
+    from buttle import msa
+    
+    aligned_profile = msa("example.fasta", gap_open = -10, gap_extend = -3)
+    ```
 
-    "buttle msa $'>name1\nsequence1\n>name2\nsequence2\n>name3\nsequence3'"
+    Command-line usage with a FASTA-file:
+    ```bash
+    buttle msa example.fasta --diff --save output.tiff --gap-open -10 --gap-extend -3
+    ```
+
+    Command-line usage with a FASTA-formatted string:
+    ```bash
+    buttle msa $'>name1\nsequence1\n>name2\nsequence2\n>name3\nsequence3' --diff
+    ```
     '''
 
-    if Path(file).exists():
-        sequences = btp.parse_fasta_file(file, allow_x = True)
-    else:
-        sequences = btp.parse_fasta_string(file, allow_x = True)
+    # Parse sequences from FASTA file or string
+    sequences = btp.parse_fasta(source, molecule_type=molecule_type, allow_x=True, allow_n=True, stop_action=stop_action)
+    
+    # Ensure there are at least two sequences to align.
+    if len(sequences) < 2:
+        raise ValueError("Multiple alignment requires at least two sequences.")
 
+    # Set reference sequence and molecule type
     reference_sequence = sequences[0]
+    molecule_type = type(reference_sequence).__name__.lower()
 
-    pairwise_alignments = _build_pairwise_alignments(sequences, backend)
-
+    # Main algorithm
+    pairwise_alignments = _build_pairwise_alignments(sequences, backend, molecule_type)
     original_distance_matrix = _build_original_distance_matrix(sequences, pairwise_alignments)
-
     tree = _build_guide_tree(sequences, original_distance_matrix)
-
     arranged_tree = _move_reference_sequence_to_top(tree, reference_sequence)
 
-    return _walk_tree(arranged_tree, backend, gap_open, gap_extend)
+    # Print out the Cluster tree if requested
+    if print_tree:
+        arranged_tree.print_tree()
 
-
-
-def add_consensus(
-        profile:btm.Profile
-) -> btm.Profile:
-    '''
-    If the --consensus flag is provided, this function is called.
-
-    It calculates the consensus residue at each position and adds the complete consensus sequence to the bottom of the profile.
-    '''
-    
-    consensus = []
-
-    aligned_length = len(profile.alignment[0])
-
-    for i in range(aligned_length):
-        residues = []
-        for alignment in profile.alignment:
-            residues.append(alignment[i])
-        count = Counter(residues)
-        consensus.append(count.most_common(1)[0][0])
-
-    profile.name.append("Consensus")
-    profile.alignment.append(consensus)
-
-    return profile
-
+    return _walk_tree(arranged_tree, backend, gap_open, gap_extend, molecule_type)

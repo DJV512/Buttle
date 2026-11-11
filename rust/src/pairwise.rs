@@ -1,10 +1,19 @@
 use crate::constants::BLOSUMX;
 use crate::constants::aa_index;
 use crate::constants::Direction;
+use crate::constants::Molecule;
 
-pub fn pairwise_protein(seq1: &str, seq2: &str) -> (String, String) {
+
+pub fn pairwise_align(seq1: &str, seq2: &str, molecule_type: &str) -> (String, String) {
 
     // Set Gap penalty constants, and a highly negative number for the impossible boundaries
+
+    let molecule = match molecule_type {
+        "protein" => Molecule::Protein,
+        "dna" => Molecule::DNA,
+        _ => unreachable!("Invalid molecule type"),
+    };
+
     const GAP_OPEN:i32 = -10;
     const GAP_EXTEND:i32 = -1;
     const NEG_INF:i32 = i32::MIN / 2;
@@ -70,16 +79,26 @@ pub fn pairwise_protein(seq1: &str, seq2: &str) -> (String, String) {
         }
     }
 
-    // Populate the entire scoring and traceback matrix based on maximum BLOSUM62 based scoring
-    // BLOSUMX is a modified BLOSUM62 whcih uses an "X" amino acid as an alignment anchor
+    // Populate scoring and traceback matrices using molecule-specific substitution scores.
+    // Protein scoring uses BLOSUMX; DNA scoring uses fixed match/mismatch penalties.
     for i in 1..rows {
         for j in 1..cols {
-            let residue_blosum_score = BLOSUMX[aa_index(&s1[i..i+1])][aa_index(&s2[j..j+1])];
+            
+            let score = match molecule {
+                Molecule::Protein => BLOSUMX[aa_index(&s1[i..i+1])][aa_index(&s2[j..j+1])],
+                Molecule::DNA => {
+                    if &s1[i..i+1] == &s2[j..j+1] && &s1[i..i+1] != "N" {
+                        8
+                    } else {
+                        -5
+                    }
+                }
+            };
 
             let (best_score, direction) = [
-                (score_vert[(i-1)*cols + (j-1)] + residue_blosum_score, Direction::Vert),
-                (score_hori[(i-1)*cols + (j-1)] + residue_blosum_score, Direction::Hori),
-                (score_diag[(i-1)*cols + (j-1)] + residue_blosum_score, Direction::Diag), 
+                (score_vert[(i-1)*cols + (j-1)] + score, Direction::Vert),
+                (score_hori[(i-1)*cols + (j-1)] + score, Direction::Hori),
+                (score_diag[(i-1)*cols + (j-1)] + score, Direction::Diag), 
                 ].into_iter().max_by_key(|(score, _)| *score).unwrap();
 
             score_diag[i*cols + j] = best_score;

@@ -1,12 +1,12 @@
 [project]
 name = "buttle"
-version = "0.3.0"
+version = "0.4.0"
 description = "Command-line utilities for DNA and protein sequence analysis. At your service."
 readme = "README.md"
 license = "BSD-3-Clause"
 requires-python = ">=3.15"
 dependencies = [
-    "pillow>=12.3.0",
+    "pillow>=13.0.0",
 ]
 
 [project.scripts]

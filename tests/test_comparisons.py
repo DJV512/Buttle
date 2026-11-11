@@ -1,5 +1,5 @@
 import buttle.comparisons as btcomp
-import buttle.models as btm
+import buttle.models.molecules as btm
 import pytest
 
 def test_motifs():
@@ -68,13 +68,13 @@ def test_identity_fasta_file_input(tmp_path):
     )
 
     expected = {
-        ("seq1", "seq2"): 10/18,
-        ("seq1", "seq3"): 4/17,
-        ("seq2", "seq3"): 4/17
+        ("seq1", "seq2"): 1000/18,
+        ("seq1", "seq3"): 400/17,
+        ("seq2", "seq3"): 400/17
     }
 
-    output = btcomp.identity(fasta)
-    assert output == expected
+    output = btcomp.identity(str(fasta))
+    assert output == pytest.approx(expected)
 
 
 def test_identity_string_input():
@@ -82,10 +82,10 @@ def test_identity_string_input():
     fasta = ">seq1\nAPLPERDFGNMTREEWQ\n>seq2\nAPIDKDFGQMPTREDFQ\n>seq3\nGPVDREYFQMSKDEYN"
 
     expected = {
-        ("seq1", "seq2"): 10/18,
-        ("seq1", "seq3"): 4/17,
-        ("seq2", "seq3"): 4/17
+        ("seq1", "seq2"): 1000/18,
+        ("seq1", "seq3"): 400/17,
+        ("seq2", "seq3"): 400/17
     }
 
     output = btcomp.identity(fasta)
-    assert output == expected
+    assert output == pytest.approx(expected)

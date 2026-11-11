@@ -59,6 +59,11 @@ pub enum Direction {
     Impossible,
 }
 
+pub enum Molecule {
+    DNA,
+    Protein,
+}
+
 #[derive(Debug, Clone)]
 pub struct Profile {
     pub names: Vec<String>,
